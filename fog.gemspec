@@ -47,6 +47,7 @@ Gem::Specification.new do |s|
   s.add_dependency('builder')
   s.add_dependency('excon', '~>0.31.0')
   s.add_dependency('formatador', '~>0.2.0')
+  s.add_dependency('ipaddress', '~>0.5')
   s.add_dependency('mime-types')
   s.add_dependency('net-scp', '~>1.1')
   s.add_dependency('net-ssh', '>=2.1.3')

@@ -41,7 +41,7 @@ Shindo.tests('Fog::Compute[:aws] | network interface requests', ['aws']) do
     @subnet         = Fog::Compute[:aws].subnets.create('vpc_id' => @vpc.id, 'cidr_block' => '10.0.10.16/28')
     @security_group = Fog::Compute[:aws].security_groups.create('name' => 'sg_name', 'description' => 'sg_desc', 'vpc_id' => @vpc.id)
 
-    
+
     @subnet_id         = @subnet.subnet_id
     @security_group_id = @security_group.group_id
 
@@ -108,11 +108,12 @@ Shindo.tests('Fog::Compute[:aws] | network interface requests', ['aws']) do
 
     @server = Fog::Compute[:aws].servers.create({:flavor_id => 'm1.small', :subnet_id => @subnet_id })
     @server.wait_for { ready? }
-	@instance_id=@server.id
+    @instance_id=@server.id
 
-      # attach
+    # attach
+    @device_index = 1
     tests('#attach_network_interface').formats(@attach_network_interface_format) do
-      data = Fog::Compute[:aws].attach_network_interface(@nic_id, @instance_id, 1).body
+      data = Fog::Compute[:aws].attach_network_interface(@nic_id, @instance_id, @device_index).body
       @attachment_id = data['attachmentId']
       data
     end
@@ -188,5 +189,49 @@ Shindo.tests('Fog::Compute[:aws] | network interface requests', ['aws']) do
     @security_group.destroy
     @subnet.destroy
     @vpc.destroy
+  end
+
+  tests('failure') do
+
+    # Attempt to attach a nonexistent interface
+    tests("#attach_network_interface('eni-00000000', 'i-00000000', '1')").raises(::Fog::Compute::AWS::NotFound) do
+      Fog::Compute[:aws].attach_network_interface('eni-00000000', 'i-00000000', '1')
+    end
+
+    # Create environment
+    @vpc            = Fog::Compute[:aws].vpcs.create('cidr_block' => '10.0.10.0/24')
+    @subnet         = Fog::Compute[:aws].subnets.create('vpc_id' => @vpc.id, 'cidr_block' => '10.0.10.16/28')
+
+    @subnet_id      = @subnet.subnet_id
+
+    data = Fog::Compute[:aws].create_network_interface(@subnet_id).body
+    @nic_id = data['networkInterface']['networkInterfaceId']
+
+    # Attempt to re-use an existing IP for another ENI
+    tests("#create_network_interface('#{@subnet_id}', {'PrivateIpAddress' => '#{data['networkInterface']['privateIpAddress']}'}").raises(::Fog::Compute::AWS::Error) do
+      Fog::Compute[:aws].create_network_interface(@subnet_id, {'PrivateIpAddress' => data['networkInterface']['privateIpAddress']})
+    end
+
+    # Attempt to attach a valid ENI to a nonexistent instance.
+    tests("#attach_network_interface('#{@nic_id}', 'i-00000000', '0')").raises(::Fog::Compute::AWS::NotFound) do
+      Fog::Compute[:aws].attach_network_interface(@nic_id, 'i-00000000', '0')
+    end
+
+    @server = Fog::Compute[:aws].servers.create({:flavor_id => 'm1.small', :subnet_id => @subnet_id })
+    @server.wait_for { ready? }
+    @instance_id=@server.id
+    @device_index = 1
+    data = Fog::Compute[:aws].attach_network_interface(@nic_id, @instance_id, @device_index).body
+
+    # Attempt to attach two ENIs to the same instance with the same device
+    # index.
+    tests("#attach_network_interface('#{@nic_id}', '#{@instance_id}', '#{@device_index}')").raises(::Fog::Compute::AWS::Error) do
+      Fog::Compute[:aws].attach_network_interface(@nic_id, @instance_id, @device_index)
+    end
+
+    @server.destroy
+    @subnet.destroy
+    @vpc.destroy
+
   end
 end
